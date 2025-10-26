@@ -55,9 +55,8 @@ static int __init memory_manager_init(void)
 	pte_t pte_entry;
 	bool found = false;
 
-	if (pid < 0) {
+	if (pid < 0)
 		return -EINVAL;
-	}
 
 	address = (unsigned long)addr;
 
@@ -100,4 +99,65 @@ static int __init memory_manager_init(void)
 
 	pud = pud_offset(p4d, address);
 	if (!pud || pud_none(*pud) || unlikely(pud_bad(*pud))) {
-		put_ta_
+		put_task_struct(found_task);
+		print_invalid(pid, address);
+		return 0;
+	}
+
+	pmd = pmd_offset(pud, address);
+	if (!pmd || pmd_none(*pmd) || unlikely(pmd_bad(*pmd))) {
+		put_task_struct(found_task);
+		print_invalid(pid, address);
+		return 0;
+	}
+
+	pte_ptr = pte_offset_kernel(pmd, address);
+	if (!pte_ptr) {
+		put_task_struct(found_task);
+		print_invalid(pid, address);
+		return 0;
+	}
+
+	pte_entry = *pte_ptr;
+	if (pte_none(pte_entry)) {
+		put_task_struct(found_task);
+		print_invalid(pid, address);
+		return 0;
+	}
+
+	if (pte_present(pte_entry)) {
+		unsigned long pfn;
+		unsigned long phys_page_base;
+		unsigned long offset;
+		unsigned long phys_addr;
+
+		pfn = pte_pfn(pte_entry);
+		phys_page_base = (pfn << PAGE_SHIFT);
+		offset = address & ~PAGE_MASK;
+		phys_addr = phys_page_base | offset;
+
+		put_task_struct(found_task);
+		print_phys(pid, address, phys_addr);
+		return 0;
+	}
+
+	{
+		swp_entry_t swp = pte_to_swp_entry(pte_entry);
+		if (swp.val) {
+			put_task_struct(found_task);
+			print_swap(pid, address, (unsigned long)swp.val);
+		} else {
+			put_task_struct(found_task);
+			print_invalid(pid, address);
+		}
+	}
+
+	return 0;
+}
+
+static void __exit memory_manager_exit(void)
+{
+}
+
+module_init(memory_manager_init);
+module_exit(memory_manager_exit);
