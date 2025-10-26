@@ -1,8 +1,6 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/pid.h>
-#include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/mm.h>
 #include <linux/mm_types.h>
@@ -19,26 +17,26 @@ static int pid = -1;
 module_param(pid, int, 0444);
 MODULE_PARM_DESC(pid, "PID of the process to inspect (int)");
 
-static unsigned long addr = 0;
-module_param(addr, ulong, 0444);
-MODULE_PARM_DESC(addr, "Virtual address to translate (unsigned long)");
+static unsigned long long addr = 0;
+module_param(addr, ullong, 0444);
+MODULE_PARM_DESC(addr, "Virtual address to translate (unsigned long long)");
 
-static void print_phys(int pid_in, unsigned long vaddr, unsigned long phys_addr)
+static void print_phys(int pid_in, unsigned long long vaddr, unsigned long long phys_addr)
 {
 	printk(KERN_INFO "[CSE330-Memory-Manager] PID [%d]: virtual address [%llx]  physical address [%llx] swap identifier [NA]\n",
-	       pid_in, (unsigned long long)vaddr, (unsigned long long)phys_addr);
+	       pid_in, vaddr, phys_addr);
 }
 
-static void print_swap(int pid_in, unsigned long vaddr, unsigned long swap_id)
+static void print_swap(int pid_in, unsigned long long vaddr, unsigned long long swap_id)
 {
 	printk(KERN_INFO "[CSE330-Memory-Manager] PID [%d]: virtual address [%llx]  physical address [NA] swap identifier [%llx]\n",
-	       pid_in, (unsigned long long)vaddr, (unsigned long long)swap_id);
+	       pid_in, vaddr, swap_id);
 }
 
-static void print_invalid(int pid_in, unsigned long vaddr)
+static void print_invalid(int pid_in, unsigned long long vaddr)
 {
 	printk(KERN_INFO "[CSE330-Memory-Manager] PID [%d]: virtual address [%llx]  physical address [NA] swap identifier [NA]\n",
-	       pid_in, (unsigned long long)vaddr);
+	       pid_in, vaddr);
 }
 
 static int __init memory_manager_init(void)
@@ -46,7 +44,7 @@ static int __init memory_manager_init(void)
 	struct task_struct *task;
 	struct task_struct *found_task = NULL;
 	struct mm_struct *mm;
-	unsigned long address;
+	unsigned long long vaddr;
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
@@ -58,7 +56,7 @@ static int __init memory_manager_init(void)
 	if (pid < 0)
 		return -EINVAL;
 
-	address = (unsigned long)addr;
+	vaddr = addr;
 
 	rcu_read_lock();
 	for_each_process(task) {
@@ -72,72 +70,72 @@ static int __init memory_manager_init(void)
 	rcu_read_unlock();
 
 	if (!found || !found_task) {
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
 	mm = found_task->mm;
 	if (!mm) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
-	pgd = pgd_offset(mm, address);
+	pgd = pgd_offset(mm, (unsigned long)vaddr);
 	if (!pgd || pgd_none(*pgd) || unlikely(pgd_bad(*pgd))) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
-	p4d = p4d_offset(pgd, address);
+	p4d = p4d_offset(pgd, (unsigned long)vaddr);
 	if (!p4d || p4d_none(*p4d) || unlikely(p4d_bad(*p4d))) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
-	pud = pud_offset(p4d, address);
+	pud = pud_offset(p4d, (unsigned long)vaddr);
 	if (!pud || pud_none(*pud) || unlikely(pud_bad(*pud))) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
-	pmd = pmd_offset(pud, address);
+	pmd = pmd_offset(pud, (unsigned long)vaddr);
 	if (!pmd || pmd_none(*pmd) || unlikely(pmd_bad(*pmd))) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
-	pte_ptr = pte_offset_kernel(pmd, address);
+	pte_ptr = pte_offset_kernel(pmd, (unsigned long)vaddr);
 	if (!pte_ptr) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
 	pte_entry = *pte_ptr;
 	if (pte_none(pte_entry)) {
 		put_task_struct(found_task);
-		print_invalid(pid, address);
+		print_invalid(pid, vaddr);
 		return 0;
 	}
 
 	if (pte_present(pte_entry)) {
-		unsigned long pfn;
-		unsigned long phys_page_base;
-		unsigned long offset;
-		unsigned long phys_addr;
+		unsigned long long pfn;
+		unsigned long long phys_page_base;
+		unsigned long long offset;
+		unsigned long long phys_addr;
 
-		pfn = pte_pfn(pte_entry);
-		phys_page_base = (pfn << PAGE_SHIFT);
-		offset = address & ~PAGE_MASK;
+		pfn = (unsigned long long)pte_pfn(pte_entry);
+		phys_page_base = pfn << PAGE_SHIFT;
+		offset = vaddr & ~PAGE_MASK;
 		phys_addr = phys_page_base | offset;
 
 		put_task_struct(found_task);
-		print_phys(pid, address, phys_addr);
+		print_phys(pid, vaddr, phys_addr);
 		return 0;
 	}
 
@@ -145,10 +143,10 @@ static int __init memory_manager_init(void)
 		swp_entry_t swp = pte_to_swp_entry(pte_entry);
 		if (swp.val) {
 			put_task_struct(found_task);
-			print_swap(pid, address, (unsigned long)swp.val);
+			print_swap(pid, vaddr, (unsigned long long)swp.val);
 		} else {
 			put_task_struct(found_task);
-			print_invalid(pid, address);
+			print_invalid(pid, vaddr);
 		}
 	}
 
