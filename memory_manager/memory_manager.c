@@ -3,6 +3,7 @@
 #include <linux/kernel.h>
 #include <linux/pid.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/mm.h>
 #include <linux/mm_types.h>
 #include <linux/highmem.h>
@@ -41,7 +42,6 @@ static void print_invalid(int pid_in, unsigned long vaddr)
 
 static int __init memory_manager_init(void)
 {
-	struct pid *pid_struct;
 	struct task_struct *task;
 	struct mm_struct *mm;
 	unsigned long address;
@@ -51,6 +51,7 @@ static int __init memory_manager_init(void)
 	pmd_t *pmd;
 	pte_t *pte_ptr;
 	pte_t pte_entry;
+	bool found = false;
 
 	pr_info("[CSE330-Memory-Manager] module loaded: pid=%d addr=%lx\n", pid, addr);
 
@@ -60,17 +61,19 @@ static int __init memory_manager_init(void)
 	}
 
 	address = (unsigned long)addr;
-	pid_struct = find_get_pid(pid);
-	if (!pid_struct) {
+
+	for_each_process(task) {
+		if (task->pid == pid) {
+			found = true;
+			break;
+		}
+	}
+
+	if (!found || !task) {
 		print_invalid(pid, address);
 		return 0;
 	}
-	task = pid_task(pid_struct, PIDTYPE_PID);
-	put_pid(pid_struct);
-	if (!task) {
-		print_invalid(pid, address);
-		return 0;
-	}
+
 	mm = task->mm;
 	if (!mm) {
 		print_invalid(pid, address);
@@ -82,21 +85,25 @@ static int __init memory_manager_init(void)
 		print_invalid(pid, address);
 		return 0;
 	}
+
 	p4d = p4d_offset(pgd, address);
 	if (!p4d || p4d_none(*p4d) || unlikely(p4d_bad(*p4d))) {
 		print_invalid(pid, address);
 		return 0;
 	}
+
 	pud = pud_offset(p4d, address);
 	if (!pud || pud_none(*pud) || unlikely(pud_bad(*pud))) {
 		print_invalid(pid, address);
 		return 0;
 	}
+
 	pmd = pmd_offset(pud, address);
 	if (!pmd || pmd_none(*pmd) || unlikely(pmd_bad(*pmd))) {
 		print_invalid(pid, address);
 		return 0;
 	}
+
 	pte_ptr = pte_offset_kernel(pmd, address);
 	if (!pte_ptr) {
 		print_invalid(pid, address);
