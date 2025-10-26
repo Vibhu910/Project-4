@@ -10,7 +10,7 @@
 #include <linux/rcupdate.h>
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("CSE330");
+MODULE_AUTHOR("Vibhu Bhardwaj");
 MODULE_DESCRIPTION("memory_manager");
 
 static int pid = -1;
